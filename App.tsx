@@ -1,6 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
+import { Pressable, Text } from 'react-native';
 
 import ForecastScreen from './src/screens/ForecastScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
@@ -19,7 +20,22 @@ export default function App() {
     <NavigationContainer>
       <StatusBar style="auto" />
       <Stack.Navigator initialRouteName="Today">
-        <Stack.Screen name="Today" component={TodayScreen} options={{ title: '今日運動' }} />
+        <Stack.Screen
+          name="Today"
+          component={TodayScreen}
+          options={({ navigation }) => ({
+            title: '今日運動',
+            headerRight: () => (
+              <Pressable
+                accessibilityLabel="設定"
+                hitSlop={8}
+                onPress={() => navigation.navigate('Settings')}
+              >
+                <Text style={{ fontSize: 20 }}>⚙️</Text>
+              </Pressable>
+            ),
+          })}
+        />
         <Stack.Screen name="Forecast" component={ForecastScreen} options={{ title: '今日詳細' }} />
         <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '設定' }} />
       </Stack.Navigator>
