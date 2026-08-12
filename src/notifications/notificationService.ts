@@ -9,10 +9,6 @@ import type { BestWindow } from '../types/exercise';
 export const DAILY_NOTIFICATION_ID = 'move-window-daily';
 const ANDROID_CHANNEL_ID = 'daily-reminder';
 
-// §12: default daily notification time until Phase 7 adds a Settings screen
-// to make this user-configurable and persist it via AsyncStorage.
-export const DEFAULT_NOTIFICATION_TIME = { hour: 7, minute: 30 };
-
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,

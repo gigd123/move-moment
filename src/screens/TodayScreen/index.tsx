@@ -1,5 +1,5 @@
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -12,11 +12,16 @@ import WeatherSummary, { type WeatherLoadState } from '../../components/WeatherS
 import { findBestOutdoorWindow } from '../../domain/exercise/bestWindow';
 import { INDOOR_RECOMMENDATION_MESSAGE } from '../../domain/exercise/messages';
 import {
-  DEFAULT_NOTIFICATION_TIME,
+  cancelDailyNotification,
   requestNotificationPermissionAsync,
   scheduleDailyNotification,
 } from '../../notifications/notificationService';
 import { fetchHourlyForecast } from '../../services/weather/weatherApi';
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  loadNotificationSettings,
+  type NotificationSettings,
+} from '../../storage/settingsStorage';
 import type { HourlyWeather } from '../../types/weather';
 import { colors } from '../../utils/colors';
 import { findCurrentHour } from '../../utils/time';
@@ -34,6 +39,18 @@ const FETCH_FAILED_MESSAGE = '取得天氣資料失敗，請檢查網路連線�
 export default function TodayScreen() {
   const navigation = useNavigation<Navigation>();
   const [forecast, setForecast] = useState<ForecastState>({ status: 'loading' });
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>(
+    DEFAULT_NOTIFICATION_SETTINGS
+  );
+
+  // Reload on every focus (not just mount) so a change made in Settings
+  // takes effect as soon as the user navigates back, without needing a
+  // full app restart.
+  useFocusEffect(
+    useCallback(() => {
+      loadNotificationSettings().then(setNotificationSettings);
+    }, [])
+  );
 
   const loadWeather = useCallback(async () => {
     setForecast({ status: 'loading' });
@@ -74,23 +91,29 @@ export default function TodayScreen() {
   );
 
   useEffect(() => {
-    // §26.2 fallback mechanism: whenever the app is opened with today's
-    // notification still ahead, refresh its content with what we just
-    // computed instead of waiting on the (best-effort, imprecise)
-    // background task.
+    // §26.2 fallback mechanism: whenever the app is opened (or the user
+    // returns from Settings) with today's notification still ahead, refresh
+    // its content with what we just computed instead of waiting on the
+    // (best-effort, imprecise) background task.
     if (forecast.status !== 'ready') return;
 
+    if (!notificationSettings.notificationEnabled) {
+      cancelDailyNotification();
+      return;
+    }
+
+    const { notificationTime } = notificationSettings;
     const notificationTimeToday = new Date();
-    notificationTimeToday.setHours(DEFAULT_NOTIFICATION_TIME.hour, DEFAULT_NOTIFICATION_TIME.minute, 0, 0);
+    notificationTimeToday.setHours(notificationTime.hour, notificationTime.minute, 0, 0);
     if (Date.now() >= notificationTimeToday.getTime()) return;
 
     requestNotificationPermissionAsync()
       .then((granted) => {
         if (!granted) return;
-        return scheduleDailyNotification(DEFAULT_NOTIFICATION_TIME, bestWindow);
+        return scheduleDailyNotification(notificationTime, bestWindow);
       })
       .catch(() => undefined);
-  }, [forecast, bestWindow]);
+  }, [forecast, bestWindow, notificationSettings]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>

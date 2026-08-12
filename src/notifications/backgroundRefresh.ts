@@ -4,7 +4,8 @@ import * as TaskManager from 'expo-task-manager';
 
 import { findBestOutdoorWindow } from '../domain/exercise/bestWindow';
 import { fetchHourlyForecast } from '../services/weather/weatherApi';
-import { DEFAULT_NOTIFICATION_TIME, scheduleDailyNotification } from './notificationService';
+import { loadNotificationSettings } from '../storage/settingsStorage';
+import { scheduleDailyNotification } from './notificationService';
 
 export const BACKGROUND_REFRESH_TASK = 'move-window-background-refresh';
 
@@ -23,7 +24,8 @@ function isWithinRefreshWindow(target: { hour: number; minute: number }): boolea
 
 TaskManager.defineTask(BACKGROUND_REFRESH_TASK, async () => {
   try {
-    if (!isWithinRefreshWindow(DEFAULT_NOTIFICATION_TIME)) {
+    const settings = await loadNotificationSettings();
+    if (!settings.notificationEnabled || !isWithinRefreshWindow(settings.notificationTime)) {
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
@@ -36,7 +38,7 @@ TaskManager.defineTask(BACKGROUND_REFRESH_TASK, async () => {
     const forecast = await fetchHourlyForecast(position.coords.latitude, position.coords.longitude);
     const bestWindow = findBestOutdoorWindow(forecast.hourly);
 
-    await scheduleDailyNotification(DEFAULT_NOTIFICATION_TIME, bestWindow);
+    await scheduleDailyNotification(settings.notificationTime, bestWindow);
 
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch {
