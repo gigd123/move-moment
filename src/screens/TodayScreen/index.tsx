@@ -1,56 +1,55 @@
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParamList } from '../../../App';
 import BestWindowCard from '../../components/BestWindowCard';
 import IndoorRecommendationCard from '../../components/IndoorRecommendationCard';
-import WarningBanner from '../../components/WarningBanner';
 import WeatherSummary, { type WeatherLoadState } from '../../components/WeatherSummary';
+import { findBestOutdoorWindow } from '../../domain/exercise/bestWindow';
 import { fetchHourlyForecast } from '../../services/weather/weatherApi';
+import type { HourlyWeather } from '../../types/weather';
 import { colors } from '../../utils/colors';
 import { findCurrentHour } from '../../utils/time';
-import { badDayMock, goodDayMock } from './mockData';
 
 type Navigation = NativeStackNavigationProp<RootStackParamList, 'Today'>;
 
-// Phase 4、5 才會實作 domain/exercise，最佳時段／室內建議暫時還是假資料。
-// 這個開關讓兩種情境都能直接看到，Phase 5 接上真實 threshold 後會拿掉。
-const DEMO_SCENARIOS = { good: goodDayMock, bad: badDayMock };
+type ForecastState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; hourly: HourlyWeather[] };
 
 const LOCATION_DENIED_MESSAGE = '需要定位權限才能取得今天的天氣，請到系統設定開啟後重試。';
 const FETCH_FAILED_MESSAGE = '取得天氣資料失敗，請檢查網路連線後重試。';
+const INDOOR_RECOMMENDATION_MESSAGE = '今天戶外條件較差，建議改做室內運動。';
 
 export default function TodayScreen() {
   const navigation = useNavigation<Navigation>();
-  const [scenario, setScenario] = useState<keyof typeof DEMO_SCENARIOS>('good');
-  const [weather, setWeather] = useState<WeatherLoadState>({ status: 'loading' });
-  const today = DEMO_SCENARIOS[scenario];
+  const [forecast, setForecast] = useState<ForecastState>({ status: 'loading' });
 
   const loadWeather = useCallback(async () => {
-    setWeather({ status: 'loading' });
+    setForecast({ status: 'loading' });
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setWeather({ status: 'error', message: LOCATION_DENIED_MESSAGE, onRetry: loadWeather });
+        setForecast({ status: 'error', message: LOCATION_DENIED_MESSAGE });
         return;
       }
 
       const position = await Location.getCurrentPositionAsync({});
-      const forecast = await fetchHourlyForecast(position.coords.latitude, position.coords.longitude);
-      const currentHour = findCurrentHour(forecast.hourly);
+      const daily = await fetchHourlyForecast(position.coords.latitude, position.coords.longitude);
 
-      if (!currentHour) {
-        setWeather({ status: 'error', message: FETCH_FAILED_MESSAGE, onRetry: loadWeather });
+      if (daily.hourly.length === 0) {
+        setForecast({ status: 'error', message: FETCH_FAILED_MESSAGE });
         return;
       }
 
-      setWeather({ status: 'ready', hour: currentHour });
+      setForecast({ status: 'ready', hourly: daily.hourly });
     } catch {
-      setWeather({ status: 'error', message: FETCH_FAILED_MESSAGE, onRetry: loadWeather });
+      setForecast({ status: 'error', message: FETCH_FAILED_MESSAGE });
     }
   }, []);
 
@@ -58,29 +57,34 @@ export default function TodayScreen() {
     loadWeather();
   }, [loadWeather]);
 
+  const weatherSummary: WeatherLoadState = useMemo(() => {
+    if (forecast.status === 'loading') return { status: 'loading' };
+    if (forecast.status === 'error') return { status: 'error', message: forecast.message, onRetry: loadWeather };
+    return { status: 'ready', hour: findCurrentHour(forecast.hourly) ?? forecast.hourly[0] };
+  }, [forecast, loadWeather]);
+
+  const bestWindow = useMemo(
+    () => (forecast.status === 'ready' ? findBestOutdoorWindow(forecast.hourly) : null),
+    [forecast]
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.greeting}>{today.greeting}</Text>
+        <Text style={styles.greeting}>Good morning, Leo</Text>
         <Text style={styles.question}>今天適合運動嗎？</Text>
 
-        <WeatherSummary {...weather} />
+        <WeatherSummary {...weatherSummary} />
 
         <View style={styles.divider} />
 
-        {today.status === 'good' ? (
-          <>
-            <BestWindowCard start={today.bestWindow.start} end={today.bestWindow.end} score={today.bestWindow.score} />
-            {today.warning ? (
-              <>
-                <View style={styles.divider} />
-                <WarningBanner timeRange={today.warning.timeRange} reason={today.warning.reason} />
-              </>
-            ) : null}
-          </>
-        ) : (
-          <IndoorRecommendationCard message={today.recommendation} />
-        )}
+        {forecast.status === 'ready' ? (
+          bestWindow ? (
+            <BestWindowCard start={bestWindow.start} end={bestWindow.end} score={bestWindow.averageScore} />
+          ) : (
+            <IndoorRecommendationCard message={INDOOR_RECOMMENDATION_MESSAGE} />
+          )
+        ) : null}
 
         <View style={styles.divider} />
 
@@ -91,24 +95,6 @@ export default function TodayScreen() {
           <Text style={styles.forecastButtonText}>查看今日完整預報</Text>
         </Pressable>
       </ScrollView>
-
-      <View style={styles.demoBar}>
-        <Text style={styles.demoLabel}>🔧 Phase 3 預覽（最佳時段仍為假資料）</Text>
-        <View style={styles.demoChips}>
-          <Pressable
-            style={[styles.demoChip, scenario === 'good' && styles.demoChipActive]}
-            onPress={() => setScenario('good')}
-          >
-            <Text style={[styles.demoChipText, scenario === 'good' && styles.demoChipTextActive]}>☀️ 好天氣</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.demoChip, scenario === 'bad' && styles.demoChipActive]}
-            onPress={() => setScenario('bad')}
-          >
-            <Text style={[styles.demoChipText, scenario === 'bad' && styles.demoChipTextActive]}>🌧️ 全天不適合戶外</Text>
-          </Pressable>
-        </View>
-      </View>
     </SafeAreaView>
   );
 }
@@ -128,25 +114,4 @@ const styles = StyleSheet.create({
   },
   forecastButtonPressed: { backgroundColor: colors.surface },
   forecastButtonText: { fontSize: 15, fontWeight: '600', color: colors.ink },
-  demoBar: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.line,
-    paddingHorizontal: 24,
-    paddingTop: 10,
-    paddingBottom: 12,
-    gap: 8,
-    backgroundColor: colors.surface,
-  },
-  demoLabel: { fontSize: 11, color: colors.inkMuted, fontWeight: '600' },
-  demoChips: { flexDirection: 'row', gap: 8 },
-  demoChip: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  demoChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  demoChipText: { fontSize: 12, fontWeight: '600', color: colors.inkMuted },
-  demoChipTextActive: { color: colors.surface },
 });
