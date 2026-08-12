@@ -27,7 +27,10 @@
         {
           "locationWhenInUsePermission": "需要你的位置來查詢當地天氣，藉此推薦今天適合運動的時段。"
         }
-      ]
+      ],
+      "expo-notifications",
+      "expo-background-task",
+      "expo-task-manager"
     ]
   }
 }
